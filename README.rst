@@ -123,6 +123,24 @@ In your lms.auth.json file, please add the following *secure* information::
         }
     },
 
+Also in your lms.env.json and cms.env.json file please add the following::
+
+    "PROCTORING_SETTINGS": {
+        "SITE_NAME": "{}",
+        "PLATFORM_NAME": "{}",
+        "STATUS_EMAIL_FROM_ADDRESS": "",
+        "CONTACT_EMAIL": "{}",
+        "DEFAULT_REVIEW_POLICY": "test",
+        "REQUIRE_FAILURE_SECOND_REVIEWS": false,
+        "ALLOW_REVIEW_UPDATES": true,
+        "LINK_URLS": {
+            "contact_us": "{}",
+            "faq": "{}",
+            "online_proctoring_rules": "{}",
+            "tech_requirements": "{}"
+        }
+    },
+
 You will need to restart services after these configuration changes for them to
 take effect.
 
