@@ -70,30 +70,56 @@ cms.env.json FEATURES dictionary::
         :
     }
 
-Also in your lms.env.json and cms.env.json file please add the following::
-
-
-    "PROCTORING_SETTINGS": {
-        "LINK_URLS": {
-            "contact_us": "{add link here}",
-            "faq": "{add link here}",
-            "online_proctoring_rules": "{add link here}",
-            "tech_requirements": "{add link here}"
-        }
-    },
-
 In your lms.auth.json file, please add the following *secure* information::
 
-    "PROCTORING_BACKEND_PROVIDER": {
-        "class": "edx_proctoring.backends.software_secure.SoftwareSecureBackendProvider",
-        "options": {
-            "crypto_key": "{add SoftwareSecure crypto key here}",
-            "exam_register_endpoint": "{add enpoint to SoftwareSecure}",
-            "exam_sponsor": "{add SoftwareSecure sponsor}",
-            "organization": "{add SoftwareSecure organization}",
-            "secret_key": "{add SoftwareSecure secret key}",
-            "secret_key_id": "{add SoftwareSecure secret key id}",
-            "software_download_url": "{add SoftwareSecure download url}"
+
+    "PROCTORING_BACKEND_PROVIDERS":{
+        "EXAMUS": {
+            "class": "edx_proctoring.backends.examus.ExamusBackendProvider",
+            "options": {
+                "crypto_key": "{some value}",
+                "exam_register_endpoint": "https://stage.examus.net/api/v1/integration/npoed/exams/",
+                "exam_sponsor": "Examus",
+                "organization": "EXAMUS",
+                "secret_key": "{some value}",
+                "secret_key_id": "1",
+                "software_download_url": "https://chrome.google.com/webstore/detail/examus/apippgiggejegjpimfjnaigmanampcjg"
+            },
+            "settings": {
+                "LINK_URLS": {
+                    "contact_us": "",
+                    "faq": "",
+                    "online_proctoring_rules": "{add link here}",
+                    "tech_requirements": ""
+                }
+            }
+        },
+        "WEB_ASSISTANT": {
+            "class": "edx_proctoring.backends.assistant.NPOEDBackendProvider",
+            "options": {
+                "crypto_key": "{some value}",
+                "exam_register_endpoint": "http://{WebAssistant address}/api/exam_register/",
+                "exam_sponsor": "{}",
+                "organization": "{}",
+                "secret_key": "{}",
+                "secret_key_id": "1",
+                "software_download_url": ""
+            },
+            "settings": {
+                "SITE_NAME": "{}",
+                "PLATFORM_NAME": "{}",
+                "STATUS_EMAIL_FROM_ADDRESS": "",
+                "CONTACT_EMAIL": "{}",
+                "DEFAULT_REVIEW_POLICY": "test",
+                "REQUIRE_FAILURE_SECOND_REVIEWS": "",
+                "ALLOW_REVIEW_UPDATES": false,
+                "LINK_URLS": {
+                    "contact_us": "",
+                    "faq": "",
+                    "online_proctoring_rules": "",
+                    "tech_requirements": ""
+                }
+            }
         }
     },
 
