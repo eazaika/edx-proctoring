@@ -1,0 +1,166 @@
+{% load i18n %}
+<div class="sequence proctored-exam instructions message-left-bar" data-exam-id="{{exam_id}}" data-exam-started-poll-url="{{exam_started_poll_url}}">
+
+  <div class="">
+    <h3>
+    {% blocktrans %}
+      Follow these steps to set up and start your proctored exam.
+    {% endblocktrans %}
+    </h3>
+    {% if backend_instructions %}
+      <p>
+        {% blocktrans %}
+          Note: As part of the proctored exam setup, you will be asked
+          to verify your identity. Before you begin, make sure you are
+          on a computer with a webcam, and that you have a valid form
+          of photo identification such as a driver’s license or
+          passport.
+        {% endblocktrans %}
+      </p>
+      <ol>
+        {% for instruction in backend_instructions %}
+          <li>{{instruction|safe}}</li>
+        {% endfor %}
+      </ol>
+      {% if provider_tech_support_email and provider_tech_support_phone %}
+        <p>
+          {% blocktrans %}
+            If you have issues relating to proctoring, you can contact {{ provider_name }} technical support by emailing {{ provider_tech_support_email }}  or by calling {{ provider_tech_support_phone }}.
+          {% endblocktrans %}
+        </p>
+      {% endif %}
+      <button id="software_download_link" class="exam-action-button btn-pl-primary" data-action="click_download_software">{% trans "Start System Check" %}</button>
+    {% else %}
+    <p>
+      {% blocktrans %}
+        1. Copy this unique exam code. You will be prompted to paste this code later before you start the exam.
+      {% endblocktrans %}
+    </p>
+    <p>
+      <span class="proctored-exam-code">{{exam_code}}</span>
+    </p>
+    <p>
+      {% blocktrans %}
+        Select the exam code, then copy it using Command+C (Mac) or Control+C (Windows).
+      {% endblocktrans %}
+    </p>
+    <p>
+      {% blocktrans %}
+        2. Click the button below to set up proctoring.
+      {% endblocktrans %}
+    </p>
+    <button id="software_download_link" class="exam-action-button btn-pl-primary" data-action="click_download_software">{% trans "Start System Check" %}</button>
+    <p>
+      {% blocktrans %}
+        A new window will open. You will run a system check before downloading the proctoring application.
+      {% endblocktrans %}
+    </p>
+    <p>
+      {% blocktrans %}
+        You will be asked to verify your identity as part of the proctoring exam set up.
+        Make sure you are on a computer with a webcam, and that you have valid photo identification
+        such as a driver's license or passport, before you continue.
+      {% endblocktrans %}
+    </p>
+    <p>
+        {% blocktrans %}
+          3. When you have finished setting up proctoring, start the exam.
+        {% endblocktrans %}
+    </p>
+    {% endif %}
+    <div class="footer-sequence border-b-0 padding-b-0">
+      <a href="#" class="start-proctored-exam">{% trans "Start Proctored Exam" %}</a>
+    </div>
+  </div>
+</div>
+{% include 'proctored_exam/error_modal.html' %}
+
+
+<div class="footer-sequence border-b-0 padding-b-0">
+  {% if not is_sample_attempt and allow_proctoring_opt_out %}
+    <p class="proctored-exam-instruction">
+      <a href="#" class="proctored-decline-exam" data-action="decline" data-exam-id="{{exam_id}}" data-change-state-url="{{change_state_url}}">
+        {% trans "Take this exam without proctoring." %}
+      </a>
+    </p>
+  {% endif %}
+</div>
+{% include 'proctored_exam/footer.html' %}
+
+<script type="text/javascript">
+
+  $('.proctored-decline-exam').click(
+    function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      var action_url = $(this).data('change-state-url');
+      var exam_id = $(this).data('exam-id');
+      var action = $(this).data('action');
+
+      var msg = gettext(
+        "Are you sure you want to take this exam without proctoring?"
+      );
+      if (!confirm(msg)) {
+        return;
+      }
+
+      // Update the state of the attempt
+      $.ajax({
+        url: action_url,
+        type: 'PUT',
+        data: {
+          action: action
+        },
+        success: function() {
+          // Reloading page will reflect the new state of the attempt
+          location.reload();
+        }
+      });
+    }
+  );
+
+  function check_exam_started() {
+    var url = $('.instructions').data('exam-started-poll-url') + '?sourceid=instructions';
+    $.ajax(url).success(function(data){
+      if (data.status === 'ready_to_start') {
+        // we've state transitioned, so refresh the page
+        // to reflect the new state (which will expose the test)
+        location.reload();
+      } else {
+          // The proctoring setup is not yet complete.
+          // Show a modal indicating that the user is not done yet.
+          edx.courseware.proctored_exam.accessibleError(
+              gettext("Cannot Start Proctored Exam"),
+              gettext("You must complete the proctoring setup before you can start the exam."),
+          );
+      }
+    });
+  }
+
+  $('.start-proctored-exam').click(check_exam_started);
+
+  $("#software_download_link").click(function (e) {
+    e.preventDefault();
+    var url = $('.instructions').data('exam-started-poll-url');
+    var action = $(this).data('action');
+    // open the new tab in the click event with an empty URL but show the message.
+    var newWindow = window.open("", "_blank");
+    $(newWindow.document.body).html("<p>Please wait while you are being redirected...</p>");
+
+    var self = this;
+    $.ajax({
+      url: url,
+      type: 'PUT',
+      data: {
+        action: action
+      },
+      success: function (data) {
+        newWindow.location = "{{software_download_url|safe}}";
+      }
+    }).fail(function(){
+      newWindow.close();
+    });
+  });
+{{backend_js|safe}}
+</script>

@@ -1,6 +1,12 @@
+# coding=utf-8
+# pylint: disable=invalid-name
 """
 All tests for the models.py
 """
+
+from __future__ import absolute_import
+
+import six
 from edx_proctoring.models import (
     ProctoredExam,
     ProctoredExamStudentAllowance,
@@ -10,10 +16,13 @@ from edx_proctoring.models import (
     ProctoredExamReviewPolicy,
     ProctoredExamReviewPolicyHistory,
 )
+from edx_proctoring.statuses import ProctoredExamStudentAttemptStatus
 
 from .utils import (
     LoggedInTestCase
 )
+
+# pragma pylint: disable=useless-super-delegation
 
 
 class ProctoredExamModelTests(LoggedInTestCase):
@@ -26,6 +35,28 @@ class ProctoredExamModelTests(LoggedInTestCase):
         Build out test harnessing
         """
         super(ProctoredExamModelTests, self).setUp()
+
+    def test_unicode(self):
+        """
+        Make sure we support Unicode characters
+        """
+        proctored_exam = ProctoredExam.objects.create(
+            course_id='test_course',
+            content_id='test_content',
+            exam_name=u'अआईउऊऋऌ अआईउऊऋऌ',
+            external_id='123aXqe3',
+            time_limit_mins=90
+        )
+        output = six.text_type(proctored_exam)
+        self.assertEqual(output, u"test_course: अआईउऊऋऌ अआईउऊऋऌ (inactive)")
+
+        policy = ProctoredExamReviewPolicy.objects.create(
+            set_by_user_id=self.user.id,
+            proctored_exam=proctored_exam,
+            review_policy='Foo Policy'
+        )
+        output = six.text_type(policy)
+        self.assertEqual(output, u"ProctoredExamReviewPolicy: tester (test_course: अआईउऊऋऌ अआईउऊऋऌ (inactive))")
 
     def test_save_proctored_exam_student_allowance_history(self):  # pylint: disable=invalid-name
         """
@@ -119,6 +150,21 @@ class ProctoredExamStudentAttemptTests(LoggedInTestCase):
     Tests for the ProctoredExamStudentAttempt Model
     """
 
+    def test_exam_unicode(self):
+        """
+        Serialize the object as a display string
+        """
+        proctored_exam = ProctoredExam.objects.create(
+            course_id='test_course',
+            content_id='test_content',
+            exam_name='Test Exam',
+            external_id='123aXqe3',
+            time_limit_mins=90
+        )
+
+        string = six.text_type(proctored_exam)
+        self.assertEqual(string, "test_course: Test Exam (inactive)")
+
     def test_delete_proctored_exam_attempt(self):  # pylint: disable=invalid-name
         """
         Deleting the proctored exam attempt creates an entry in the history table.
@@ -130,6 +176,7 @@ class ProctoredExamStudentAttemptTests(LoggedInTestCase):
             external_id='123aXqe3',
             time_limit_mins=90
         )
+
         attempt = ProctoredExamStudentAttempt.objects.create(
             proctored_exam_id=proctored_exam.id,
             user_id=1,
@@ -174,6 +221,52 @@ class ProctoredExamStudentAttemptTests(LoggedInTestCase):
         deleted_item = ProctoredExamStudentAttemptHistory.get_exam_attempt_by_code("123456")
         self.assertEqual(deleted_item.student_name, "John. D Updated")
 
+    def test_update_proctored_exam_attempt(self):
+        """
+        Deleting the proctored exam attempt creates an entry in the history table.
+        """
+        proctored_exam = ProctoredExam.objects.create(
+            course_id='test_course',
+            content_id='test_content',
+            exam_name='Test Exam',
+            external_id='123aXqe3',
+            time_limit_mins=90
+        )
+        attempt = ProctoredExamStudentAttempt.objects.create(
+            proctored_exam_id=proctored_exam.id,
+            user_id=1,
+            status=ProctoredExamStudentAttemptStatus.created,
+            student_name="John. D",
+            allowed_time_limit_mins=10,
+            attempt_code="123456",
+            taking_as_proctored=True,
+            is_sample_attempt=True,
+            external_id=1
+        )
+
+        # No entry in the History table on creation of the Allowance entry.
+        attempt_history = ProctoredExamStudentAttemptHistory.objects.filter(user_id=1)
+        self.assertEqual(len(attempt_history), 0)
+
+        # re-saving, but not changing status should not make an archive copy
+        attempt.student_name = 'John. D Updated'
+        attempt.save()
+
+        attempt_history = ProctoredExamStudentAttemptHistory.objects.filter(user_id=1)
+        self.assertEqual(len(attempt_history), 0)
+
+        # change status...
+        attempt.status = ProctoredExamStudentAttemptStatus.started
+        attempt.save()
+
+        attempt_history = ProctoredExamStudentAttemptHistory.objects.filter(user_id=1)
+        self.assertEqual(len(attempt_history), 1)
+
+        # make sure we can ready it back with helper class method
+        updated_item = ProctoredExamStudentAttemptHistory.get_exam_attempt_by_code("123456")
+        self.assertEqual(updated_item.student_name, "John. D Updated")
+        self.assertEqual(updated_item.status, ProctoredExamStudentAttemptStatus.created)
+
     def test_get_exam_attempts(self):
         """
         Test to get all the exam attempts for a course
@@ -190,7 +283,7 @@ class ProctoredExamStudentAttemptTests(LoggedInTestCase):
         # create number of exam attempts
         for i in range(90):
             ProctoredExamStudentAttempt.create_exam_attempt(
-                proctored_exam.id, i, 'test_name{0}'.format(i), i + 1,
+                proctored_exam.id, i, 'test_name{0}'.format(i),
                 'test_attempt_code{0}'.format(i), True, False, 'test_external_id{0}'.format(i)
             )
 
@@ -215,14 +308,13 @@ class ProctoredExamStudentAttemptTests(LoggedInTestCase):
         policy = ProctoredExamReviewPolicy.objects.create(
             set_by_user_id=self.user.id,
             proctored_exam=proctored_exam,
-            review_policy='Foo Policy'
+            review_policy='Foo Policy',
         )
 
         attempt = ProctoredExamStudentAttempt.create_exam_attempt(
             proctored_exam.id,
             self.user.id,
             'test_name{0}'.format(self.user.id),
-            self.user.id + 1,
             'test_attempt_code{0}'.format(self.user.id),
             True,
             False,

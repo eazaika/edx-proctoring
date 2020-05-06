@@ -2,6 +2,8 @@
 Implementation of a backend provider, which does nothing
 """
 
+from __future__ import absolute_import
+
 from edx_proctoring.backends.backend import ProctoringBackendProvider
 
 
@@ -9,6 +11,7 @@ class NullBackendProvider(ProctoringBackendProvider):
     """
     Implementation of the ProctoringBackendProvider that does nothing
     """
+    verbose_name = u'Null Backend'
 
     def register_exam_attempt(self, exam, context):
         """
@@ -30,6 +33,14 @@ class NullBackendProvider(ProctoringBackendProvider):
         """
         return None
 
+    def mark_erroneous_exam_attempt(self, exam, attempt):
+        """
+        Method that would be responsible for communicating with the
+        backend provider to mark a proctored session as having
+        encountered a technical error
+        """
+        return None
+
     def get_software_download_url(self):
         """
         Returns the URL that the user needs to go to in order to download
@@ -37,13 +48,13 @@ class NullBackendProvider(ProctoringBackendProvider):
         """
         return None
 
-    def on_review_callback(self, payload):
+    def on_review_callback(self, attempt, payload):
         """
         Called when the reviewing 3rd party service posts back the results
         """
 
-    def on_review_saved(self, review):
+    def on_exam_saved(self, exam):
         """
-        called when a review has been save - either through API or via Django Admin panel
-        in order to trigger any workflow
+        Called after an exam is saved.
         """
+        return None

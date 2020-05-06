@@ -1,0 +1,26 @@
+{% load i18n %}
+<div class="failure sequence proctored-exam" data-exam-id="{{exam_id}}">
+  <h3>
+    {% blocktrans %}
+      Error with proctored exam
+    {% endblocktrans %}
+  </h3>
+
+  <p>
+    {% blocktrans %}
+      A technical error has occurred with your proctored exam. All
+      exam data, including completed answers, has been lost. To
+      resolve this error, please
+      contact <a href="mailto:{{tech_support_email}}">technical
+      support</a>.
+    {% endblocktrans %}
+  </p>
+  <p>
+    {% blocktrans %}
+      Once the error is resolved, you will need to restart the exam
+      and answer all questions again. If you have concerns about your
+      proctoring session results, please contact your course team.
+    {% endblocktrans %}
+  </p>
+</div>
+{% include 'proctored_exam/footer.html' %}

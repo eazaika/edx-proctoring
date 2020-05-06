@@ -3,10 +3,10 @@ var edx = edx || {};
 (function (Backbone, $, _, gettext) {
     'use strict';
 
-    edx.coursware = edx.coursware || {};
-    edx.coursware.proctored_exam = edx.coursware.proctored_exam || {};
+    edx.courseware = edx.courseware || {};
+    edx.courseware.proctored_exam = edx.courseware.proctored_exam || {};
 
-    edx.coursware.proctored_exam.ProctoredExamView = Backbone.View.extend({
+    edx.courseware.proctored_exam.ProctoredExamView = Backbone.View.extend({
         initialize: function (options) {
             _.bindAll(this, "detectScroll");
             this.$el = options.el;
@@ -20,6 +20,7 @@ var edx = edx || {};
             this.secondsLeft = 0;
             /* give an extra 5 seconds where the timer holds at 00:00 before page refreshes */
             this.grace_period_secs = 5;
+            this.poll_interval = 60;
             this.first_time_rendering = true;
 
             // we need to keep a copy here because the model will
@@ -48,6 +49,9 @@ var edx = edx || {};
             /* will call into the rendering */
             this.model.fetch();
         },
+        events: {
+            'click #toggle_timer': 'toggleTimerVisibility'
+        },
         detectScroll: function(event) {
             if ($(event.currentTarget).scrollTop() > this.timerBarTopPosition) {
                 $(".proctored_exam_status").addClass('is-fixed');
@@ -73,6 +77,10 @@ var edx = edx || {};
             } else {
                 // remove callback on unload event
                 $(window).unbind('beforeunload', this.unloadMessage);
+            }
+            var desktopApplicationJsUrl = this.model.get('desktop_application_js_url');
+            if (desktopApplicationJsUrl && !edx.courseware.proctored_exam.configuredWorkerURL) {
+              edx.courseware.proctored_exam.configuredWorkerURL = desktopApplicationJsUrl;
             }
 
             this.render();
@@ -134,17 +142,24 @@ var edx = edx || {};
                 "To pass your proctored exam you must also pass the online proctoring session review.");
         },
         updateRemainingTime: function (self) {
+            var pingInterval = self.model.get('ping_interval');
             self.timerTick ++;
             self.secondsLeft --;
-            if (self.timerTick % 5 === 0){
+            if (
+                self.timerTick % pingInterval === pingInterval / 2 &&
+                edx.courseware.proctored_exam.configuredWorkerURL
+            ) {
+                edx.courseware.proctored_exam.pingApplication(pingInterval).catch(self.endExamForFailureState.bind(self));
+            }
+            if (self.timerTick % self.poll_interval === 0) {
                 var url = self.model.url + '/' + self.model.get('attempt_id');
-                $.ajax(url).success(function(data) {
-                    if (data.status === 'error' || data.status === 'submitted') {
-                        // The proctoring session is in error state or has ended
-                        // refresh the page to
+                var queryString = '?sourceid=in_exam&proctored=' + self.model.get('taking_as_proctored');
+                $.ajax(url + queryString).success(function(data) {
+                    if (data.status === 'error') {
+                        // The proctoring session is in error state
+                        // refresh the page to bring up the new Proctoring state from the backend.
                         clearInterval(self.timerId); // stop the timer once the time finishes.
                         $(window).unbind('beforeunload', self.unloadMessage);
-                        // refresh the page when the timer expired
                         location.reload();
                     }
                     else {
@@ -170,7 +185,37 @@ var edx = edx || {};
                 // refresh the page when the timer expired
                 self.reloadPage();
             }
+        },
+        endExamForFailureState: function () {
+            var self = this;
+            return $.ajax({
+                data: {
+                    action: 'error'
+                },
+                url: this.model.url + '/' + this.model.get('attempt_id'),
+                type: 'PUT'
+            }).done(function(result) {
+                if (result.exam_attempt_id) {
+                    self.reloadPage();
+                }
+            });
+      },
+        toggleTimerVisibility: function (event) {
+            var button = $(event.currentTarget);
+            var icon = button.find('i');
+            var timer = this.$el.find('span#time_remaining_id b');
+            if (timer.hasClass('timer-hidden')) {
+                timer.removeClass('timer-hidden');
+                button.attr('aria-pressed', 'false');
+                icon.removeClass('fa-eye').addClass('fa-eye-slash');
+            } else {
+                timer.addClass('timer-hidden');
+                button.attr('aria-pressed', 'true');
+                icon.removeClass('fa-eye-slash').addClass('fa-eye');
+            }
+            event.stopPropagation();
+            event.preventDefault();
         }
     });
-    this.edx.coursware.proctored_exam.ProctoredExamView = edx.coursware.proctored_exam.ProctoredExamView;
+    this.edx.courseware.proctored_exam.ProctoredExamView = edx.courseware.proctored_exam.ProctoredExamView;
 }).call(this, Backbone, $, _, gettext);

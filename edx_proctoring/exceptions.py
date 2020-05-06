@@ -19,6 +19,26 @@ class ProctoredExamNotFoundException(ProctoredBaseException):
     """
     Raised when a look up fails.
     """
+    def __init__(self, *args):
+        ProctoredBaseException.__init__(self, u'The exam_id does not exist.', *args)
+
+
+class ProctoredExamReviewPolicyNotFoundException(ProctoredBaseException):
+    """
+    Raised when a look up fails.
+    """
+
+
+class ProctoredExamReviewPolicyAlreadyExists(ProctoredBaseException):
+    """
+    Raised when trying to create an ProctoredExamReviewPolicy that already exists.
+    """
+
+
+class ProctoredExamNotActiveException(ProctoredBaseException):
+    """
+    Raised when a look up fails.
+    """
 
 
 class StudentExamAttemptAlreadyExistsException(ProctoredBaseException):
@@ -45,7 +65,13 @@ class UserNotFoundException(ProctoredBaseException):
     """
 
 
-class BackendProvideCannotRegisterAttempt(ProctoredBaseException):
+class AllowanceValueNotAllowedException(ProctoredBaseException):
+    """
+    Raised when the allowance value is not an non-negative integer
+    """
+
+
+class BackendProviderCannotRegisterAttempt(ProctoredBaseException):
     """
     Raised when a back-end provider cannot register an attempt
     """

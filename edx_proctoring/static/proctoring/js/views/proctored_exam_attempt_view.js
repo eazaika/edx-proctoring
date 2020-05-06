@@ -8,15 +8,16 @@ var edx = edx || {};
     var examStatusReadableFormat = {
         eligible: gettext('Eligible'),
         created: gettext('Created'),
+        download_software_clicked: gettext('Download Software Clicked'),
         ready_to_start: gettext('Ready to start'),
         started: gettext('Started'),
         ready_to_submit: gettext('Ready to submit'),
         declined: gettext('Declined'),
         timed_out: gettext('Timed out'),
+        second_review_required: gettext('Second Review Required'),
         submitted: gettext('Submitted'),
         verified: gettext('Verified'),
         rejected: gettext('Rejected'),
-        not_reviewed: gettext('Not reviewed'),
         error: gettext('Error')
     };
     var viewHelper = {
@@ -152,6 +153,18 @@ var edx = edx || {};
                 if (end_page > data_json.pagination_info.total_pages) {
                     end_page = data_json.pagination_info.total_pages;
                 }
+
+                _.each(data_json.proctored_exam_attempts, function(proctored_exam_attempt) {
+                    if (proctored_exam_attempt.proctored_exam.is_proctored) {
+                        if (proctored_exam_attempt.proctored_exam.is_practice_exam) {
+                            proctored_exam_attempt.exam_attempt_type = gettext('Practice');
+                        } else {
+                            proctored_exam_attempt.exam_attempt_type = gettext('Proctored');
+                        }
+                    } else {
+                        proctored_exam_attempt.exam_attempt_type = gettext('Timed');
+                    }
+                });
 
                 var data = {
                     proctored_exam_attempts: data_json.proctored_exam_attempts,

@@ -1,15 +1,25 @@
 """Defines serializers used by the Proctoring API."""
+
+from __future__ import absolute_import
+
+from django.contrib.auth.models import User
+
 from rest_framework import serializers
 from rest_framework.fields import DateTimeField
-from django.contrib.auth.models import User
-from edx_proctoring.models import ProctoredExam, ProctoredExamStudentAttempt, ProctoredExamStudentAllowance
+
+from edx_proctoring.models import (
+    ProctoredExam,
+    ProctoredExamStudentAttempt,
+    ProctoredExamStudentAllowance,
+    ProctoredExamReviewPolicy
+)
 
 
 class ProctoredExamSerializer(serializers.ModelSerializer):
     """
     Serializer for the ProctoredExam Model.
     """
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(required=False)  # pylint: disable=invalid-name
     course_id = serializers.CharField(required=True)
     content_id = serializers.CharField(required=True)
     external_id = serializers.CharField(required=True)
@@ -19,8 +29,9 @@ class ProctoredExamSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(required=True)
     is_practice_exam = serializers.BooleanField(required=True)
     is_proctored = serializers.BooleanField(required=True)
-    
-    # attempt_hash = serializers.CharField(required=True)
+    due_date = serializers.DateTimeField(required=False, format=None)
+    hide_after_due = serializers.BooleanField(required=True)
+    backend = serializers.CharField(required=False)
 
     class Meta:
         """
@@ -30,7 +41,8 @@ class ProctoredExamSerializer(serializers.ModelSerializer):
 
         fields = (
             "id", "course_id", "content_id", "external_id", "exam_name",
-            "time_limit_mins", "is_proctored", "is_practice_exam", "is_active"
+            "time_limit_mins", "is_proctored", "is_practice_exam", "is_active",
+            "due_date", "hide_after_due", "backend"
         )
 
 
@@ -38,7 +50,7 @@ class UserSerializer(serializers.ModelSerializer):
     """
     Serializer for the User Model.
     """
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(required=False)  # pylint: disable=invalid-name
     username = serializers.CharField(required=True)
     email = serializers.CharField(required=True)
 
@@ -77,7 +89,7 @@ class ProctoredExamStudentAttemptSerializer(serializers.ModelSerializer):
             "id", "created", "modified", "user", "started_at", "completed_at",
             "external_id", "status", "proctored_exam", "allowed_time_limit_mins",
             "attempt_code", "is_sample_attempt", "taking_as_proctored", "last_poll_timestamp",
-            "last_poll_ipaddr", "review_policy_id"
+            "last_poll_ipaddr", "review_policy_id", "student_name", "is_status_acknowledged"
         )
 
 
@@ -95,4 +107,21 @@ class ProctoredExamStudentAllowanceSerializer(serializers.ModelSerializer):
         model = ProctoredExamStudentAllowance
         fields = (
             "id", "created", "modified", "user", "key", "value", "proctored_exam"
+        )
+
+
+class ProctoredExamReviewPolicySerializer(serializers.ModelSerializer):
+    """
+    Serializer for the ProctoredExamReviewPolicy Model.
+    """
+    proctored_exam = ProctoredExamSerializer()
+    set_by_user = UserSerializer()
+
+    class Meta:
+        """
+        Meta Class
+        """
+        model = ProctoredExamReviewPolicy
+        fields = (
+            "id", "created", "modified", "set_by_user", "proctored_exam", "review_policy",
         )
