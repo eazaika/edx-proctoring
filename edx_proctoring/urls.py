@@ -40,6 +40,16 @@ urlpatterns = [
         name='proctored_exam.attempt'
     ),
     url(
+        r'edx_proctoring/v1/proctored_exam/attempt/session/(?P<attempt_id>\d+)$',
+        views.StudentProctoredExamAttemptSession.as_view(),
+        name='proctored_exam.attempt.session'
+    ),
+    url(
+        r'edx_proctoring/v1/proctored_exam/attempt/session/list/{}$'.format(settings.COURSE_ID_PATTERN),
+        views.StudentProctoredExamAttemptSessionList.as_view(),
+        name='proctored_exam.attempt.session_list'
+    ),
+    url(
         r'edx_proctoring/v1/proctored_exam/attempt/course_id/{}$'.format(settings.COURSE_ID_PATTERN),
         views.StudentProctoredExamAttemptsByCourse.as_view(),
         name='proctored_exam.attempts.course'
@@ -86,6 +96,11 @@ urlpatterns = [
         name='proctored_exam.active_exams_for_user'
     ),
     url(
+        r'edx_proctoring/v1/proctored_exam/attempt/(?P<attempt_code>[-\w]+)$',
+        views.StudentProctoredExamAttemptByCode.as_view(),
+        name='proctored_exam.attempt'
+    ),
+    url(
         r'edx_proctoring/v1/instructor/{}$'.format(settings.COURSE_ID_PATTERN),
         views.InstructorDashboard.as_view(),
         name='instructor_dashboard_course'
@@ -93,6 +108,11 @@ urlpatterns = [
     # Unauthenticated callbacks from SoftwareSecure. Note we use other
     # security token measures to protect data
     #
+    url(
+        r'edx_proctoring/proctoring_poll_status/(?P<attempt_code>[-\w]+)$',
+        callbacks.AttemptStatus.as_view(),
+        name='anonymous.proctoring_poll_status'
+    ),
     url(
         r'edx_proctoring/proctoring_launch_callback/start_exam/(?P<attempt_code>[-\w]+)$',
         callbacks.start_exam_callback,

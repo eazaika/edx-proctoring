@@ -1,0 +1,25 @@
+{% load i18n %}
+
+<p>
+    {% blocktrans %}
+        Здравствуйте, {{ username }}!
+    {% endblocktrans %}
+</p>
+<p>
+    {% blocktrans %}
+        Ваш экзамен с прокторингом "{{ exam_name }}" на курсе
+        <a href="{{ course_url }}">{{ course_name }}</a> был успешно завершен
+        и будет отправлен на проверку соответствия необходимым требованиям.
+        Письмо с обновленным статусом экзамена будет отправлено Вам
+        в течение 5 дней.
+    {% endblocktrans %}
+</p>
+<p>
+    {% blocktrans %}
+        Если у Вас есть вопросы относительно прокторинга, свяжитесь, пожалуйста,
+        с нашим представителем службы поддержки
+        <a href="mailto:{{ contact_email }}?Subject={{ support_email_subject }}">
+            {{ contact_email }}
+        </a>.
+    {% endblocktrans %}
+</p>

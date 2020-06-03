@@ -1,0 +1,45 @@
+<div class="wrapper-content wrapper">
+    <section class="content exam-attempts-content">
+        <% if (data_exists) { %>
+        <table class="exam-attempts-table">
+            <thead>
+                <tr class="exam-attempt-headings">
+                    <th class="providername" style="width:100px;"><%- gettext("Provider Name") %></th>
+                    <th class="exam-name"><%- gettext("Exam Name") %></th>
+                    <th class="username"><%- gettext("Username") %></th>
+                    <th class="email"><%- gettext("Email") %></th>
+                    <th class="firstname" style="width:60px;"><%- gettext("First Name") %></th>
+                    <th class="lastname" style="width:60px;"><%- gettext("Last Name") %></th>
+                    <th class="sessions"><%- gettext("Suspicious Sessions") %> </th>
+                    <th class="c_action"><%- gettext("Actions") %> </th>
+                </tr>
+            </thead>
+            <tbody>
+                <% _.each(proctored_exam_attempts, function(proctored_exam_attempt){ %>
+                    <tr class="allowance-items">
+                        <td><%= proctored_exam_attempt.provider_name %></td>
+                        <td>
+                            <%- interpolate(gettext(' %(exam_display_name)s '), { exam_display_name: proctored_exam_attempt.proctored_exam.exam_name }, true) %>
+                        </td>
+                        <td>
+                            <%- interpolate(gettext(' %(username)s '), { username: proctored_exam_attempt.user.username }, true) %>
+                        </td>
+                        <td><%- interpolate(gettext(' %(email)s '), { email: proctored_exam_attempt.user.email }, true) %></td>
+                        <td><%- interpolate(gettext(' %(first_name)s '), { first_name: proctored_exam_attempt.user.first_name }, true) %></td>
+                        <td><%- interpolate(gettext(' %(last_name)s '), { last_name: proctored_exam_attempt.user.last_name }, true) %></td>
+                        <td>
+                        <% _.each(proctored_exam_attempt.sessions, function(sessions){ %>
+                            <div class="suspicious-sessions">OS: <%= sessions.os %>, browser: <%= sessions.browser %>,<br />IP: <%= sessions.ip_address %> (<%= getDateFormat(sessions.timestamp) %>)</div>
+                        <% }); %>
+                        </td>
+                        <td><a href="#" class="hide-session" data-attempt-id="<%= proctored_exam_attempt.id %>">[x]</a></td>
+                    </tr>
+                <% }); %>
+            </tbody>
+        </table>
+        <% } %>
+        <% if (!data_exists) { %>
+            <p><%- gettext("No suspicious sessions were detected.") %></p>
+        <% } %>
+    </section>
+</div>

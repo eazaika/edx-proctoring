@@ -1,9 +1,13 @@
 {% load i18n %}
 <div class="sequence proctored-exam completed" data-exam-id="{{exam_id}}">
   <h3>
+    {% if stopped_by_proctor %}
+      {% blocktrans %}Your session was stopped by proctor{% endblocktrans %}
+    {% else %}
     {% blocktrans %}
       You have submitted this proctored exam for review
     {% endblocktrans %}
+  {% endif %}
   </h3>
   <ul>
     <li> {% trans "Your recorded data should now be uploaded for review." %}</li>

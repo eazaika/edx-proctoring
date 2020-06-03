@@ -11,27 +11,29 @@ import binascii
 import datetime
 import json
 import logging
+import unicodedata
+import six
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 
 from edx_proctoring.backends.backend import ProctoringBackendProvider
 from edx_proctoring import constants
 from edx_proctoring.exceptions import (
-    BackendProvideCannotRegisterAttempt,
-    StudentExamAttemptDoesNotExistsException,
+    BackendProviderCannotRegisterAttempt,
     ProctoredExamSuspiciousLookup,
-    ProctoredExamReviewAlreadyExists,
-    ProctoredExamBadReviewStatus,
 )
 from edx_proctoring.utils import locate_attempt_by_attempt_code
 from edx_proctoring.models import (
     ProctoredExamSoftwareSecureComment,
-    ProctoredExamSoftwareSecureReview,
     ProctoredExamStudentAttemptStatus,
 )
+from edx_proctoring.statuses import SoftwareSecureReviewStatus
 
 log = logging.getLogger(__name__)
+
+SOFTWARE_SECURE_INVALID_CHARS = u'[]<>#:|!?/\'"*\\'
 
 User = get_user_model()
 
@@ -40,6 +42,9 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
     Implementation of the ProctoringBackendProvider for Proctor webassistant's
     RPNow product
     """
+    verbose_name = u'RPNow'
+    passing_statuses = SoftwareSecureReviewStatus.passing_statuses
+
 
     def __init__(self, organization, exam_sponsor, exam_register_endpoint,
                  secret_key_id, secret_key, crypto_key, software_download_url):
@@ -47,6 +52,8 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         Class initializer
         """
 
+        # pylint: disable=no-member
+        super(NPOEDBackendProvider, self).__init__()
         self.organization = organization
         self.exam_sponsor = exam_sponsor
         self.exam_register_endpoint = exam_register_endpoint
@@ -96,11 +103,11 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
                 )
             )
             log.error(err_msg)
-            raise BackendProvideCannotRegisterAttempt(err_msg, response_message)
+            raise BackendProviderCannotRegisterAttempt(err_msg, response_message)
 
         # get the external ID that Proctor webassistant has defined
         # for this attempt
-        ssi_record_locator = json.loads(response)['ID']
+        ssi_record_locator = json.loads(response)['ssiRecordLocator']
 
         return ssi_record_locator
 
@@ -117,6 +124,14 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         """
         return None
 
+    def mark_erroneous_exam_attempt(self, exam, attempt):
+        """
+        Method that would be responsible for communicating with the
+        backend provider to mark a proctored session as having
+        encountered a technical error
+        """
+        return None
+
     def get_software_download_url(self):
         """
         Returns the URL that the user needs to go to in order to download
@@ -124,57 +139,16 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         """
         return self.software_download_url
 
-    def on_review_callback(self, payload):
+    def on_review_callback(self, attempt, payload):
         """
         Called when the reviewing 3rd party service posts back the results
-        Documentation on the data format can be found from ProctorWebassistant's
+
+        Documentation on the data format can be found from SoftwareSecure's
         documentation named "Reviewer Data Transfer"
         """
-
-        log_msg = (
-            'Received callback from ProctorWebassistant with review data: {payload}'.format(
-                payload=payload
-            )
-        )
-        log.info(log_msg)
-
-        # what we consider the external_id is ProctorWebassistant's 'ssiRecordLocator'
-        external_id = payload['examMetaData']['ssiRecordLocator']
-
-        # what we consider the attempt_code is ProctorWebassistant's 'examCode'
-        attempt_code = payload['examMetaData']['examCode']
-
-        # get the ProctorWebassistant status on this attempt
-        review_status = payload['reviewStatus']
-
-        bad_status = review_status not in self.passing_review_status + self.failing_review_status
-
-        if bad_status:
-            err_msg = (
-                'Received unexpected reviewStatus field calue from payload. '
-                'Was {review_status}.'.format(review_status=review_status)
-            )
-            raise ProctoredExamBadReviewStatus(err_msg)
-
-        # do a lookup on the attempt by examCode, and compare the
-        # passed in ssiRecordLocator and make sure it matches
-        # what we recorded as the external_id. We need to look in both
-        # the attempt table as well as the archive table
-
-        (attempt_obj, is_archived_attempt) = locate_attempt_by_attempt_code(attempt_code)
-        if not attempt_obj:
-            # still can't find, error out
-            err_msg = (
-                'Could not locate attempt_code: {attempt_code}'.format(attempt_code=attempt_code)
-            )
-            raise StudentExamAttemptDoesNotExistsException(err_msg)
-
-        # then make sure we have the right external_id
-        # note that ProctorWebassistant might send a case insensitive
-        # ssiRecordLocator than what it returned when we registered the
-        # exam
+        received_id = payload['examMetaData']['ssiRecordLocator'].lower()
         match = (
-            attempt_obj.external_id.lower() == external_id.lower() or
+            attempt['external_id'].lower() == received_id.lower() or
             settings.PROCTORING_SETTINGS.get('ALLOW_CALLBACK_SIMULATION', False)
         )
         if not match:
@@ -182,76 +156,50 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
                 'Found attempt_code {attempt_code}, but the recorded external_id did not '
                 'match the ssiRecordLocator that had been recorded previously. Has {existing} '
                 'but received {received}!'.format(
-                    attempt_code=attempt_code,
-                    existing=attempt_obj.external_id,
-                    received=external_id
+                    attempt_code=attempt['attempt_code'],
+                    existing=attempt['external_id'],
+                    received=received_id
                 )
             )
             raise ProctoredExamSuspiciousLookup(err_msg)
 
-        # do some limited parsing of the JSON payload
-        review_status = payload['reviewStatus']
-        video_review_link = payload['videoReviewLink']
+        # redact the videoReviewLink from the payload
+        if 'videoReviewLink' in payload:
+            del payload['videoReviewLink']
 
-        # do we already have a review for this attempt?!? We may not allow updates
-        review = ProctoredExamSoftwareSecureReview.get_review_by_attempt_code(attempt_code)
-
-        if review:
-            if not constants.ALLOW_REVIEW_UPDATES:
-                err_msg = (
-                    'We already have a review submitted from ProctorWebassistant regarding '
-                    'attempt_code {attempt_code}. We do not allow for updates!'.format(
-                        attempt_code=attempt_code
-                    )
-                )
-                raise ProctoredExamReviewAlreadyExists(err_msg)
-
-            # we allow updates
-            warn_msg = (
-                'We already have a review submitted from ProctorWebassistant regarding '
-                'attempt_code {attempt_code}. We have been configured to allow for '
-                'updates and will continue...'.format(
-                    attempt_code=attempt_code
-                )
+        log_msg = (
+            'Received callback from SoftwareSecure with review data: {payload}'.format(
+                payload=payload
             )
-            log.warn(warn_msg)
-        else:
-            # this is first time we've received this attempt_code, so
-            # make a new record in the review table
-            review = ProctoredExamSoftwareSecureReview()
+        )
+        log.info(log_msg)
+        SoftwareSecureReviewStatus.validate(payload['reviewStatus'])
+        review_status = SoftwareSecureReviewStatus.to_standard_status.get(payload['reviewStatus'], None)
 
-        review.attempt_code = attempt_code
-        review.raw_data = json.dumps(payload)
-        review.review_status = review_status
-        review.video_url = video_review_link
-        review.student = attempt_obj.user
-        review.exam = attempt_obj.proctored_exam
-        # set reviewed_by to None because it was reviewed by our 3rd party
-        # service provider, not a user in our database
+        comments = []
+        for comment in payload.get('webCamComments', []) + payload.get('desktopComments', []):
+            comments.append({
+                'start': comment['eventStart'],
+                'stop': comment['eventFinish'],
+                'duration': comment['duration'],
+                'comment': comment['comments'],
+                'status': comment['eventStatus']
+                })
+
         try:
             reviewer_username = payload['examMetaData']['proctor_username']
             reviewer = User.objects.get(username=reviewer_username)
         except (User.DoesNotExist, KeyError):
             reviewer = None
-        review.reviewed_by = reviewer
 
-        review.save()
+        converted = {
+            'status': review_status,
+            'comments': comments,
+            'payload': payload,
+            'reviewed_by': reviewer,
+        }
+        return converted
 
-        # go through and populate all of the specific comments
-        for comment in payload.get('webCamComments', []):
-            self._save_review_comment(review, comment)
-
-        for comment in payload.get('desktopComments', []):
-            self._save_review_comment(review, comment)
-
-        # we could have gotten a review for an archived attempt
-        # this should *not* cause an update in our credit
-        # eligibility table
-        if not is_archived_attempt:
-
-            allow_status_update_on_fail = not constants.REQUIRE_FAILURE_SECOND_REVIEWS
-
-            self.on_review_saved(review, allow_status_update_on_fail=allow_status_update_on_fail)
 
     def on_review_saved(self, review, allow_status_update_on_fail=False):  # pylint: disable=arguments-differ
         """
@@ -297,6 +245,11 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
                 status
             )
 
+    def on_exam_saved(self, exam):
+        """
+        Called after an exam is saved.
+        """
+
     def _save_review_comment(self, review, comment):
         """
         Helper method to save a review comment
@@ -321,10 +274,11 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
             """
             Apply padding
             """
-            return text + (block_size - len(text) % block_size) * chr(block_size - len(text) % block_size)
+            return (text + (block_size - len(text) % block_size) *
+                    chr(block_size - len(text) % block_size)).encode('utf-8')
         cipher = DES3.new(key, DES3.MODE_ECB)
         encrypted_text = cipher.encrypt(pad(pwd))
-        return base64.b64encode(encrypted_text)
+        return base64.b64encode(encrypted_text).decode('ascii')
 
     def _split_fullname(self, full_name):
         """
@@ -347,10 +301,17 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         attempt_code = context['attempt_code']
         time_limit_mins = context['time_limit_mins']
         is_sample_attempt = context['is_sample_attempt']
-        callback_url = context['callback_url']
         full_name = context['full_name']
         review_policy = context.get('review_policy', "")
         review_policy_exception = context.get('review_policy_exception')
+        scheme = 'https' if getattr(settings, 'HTTPS', 'on') == 'on' else 'http'
+        callback_url = '{scheme}://{hostname}{path}'.format(
+            scheme=scheme,
+            hostname=settings.SITE_NAME,
+            path=reverse(
+                'jump_to', kwargs={'course_id': exam['course_id'], 'location': exam['content_id']}
+            )
+        )
 
         # compile the notes to the reviewer
         # this is a combination of the Exam Policy which is for all students
@@ -367,6 +328,18 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         now = datetime.datetime.utcnow()
         start_time_str = now.strftime("%a, %d %b %Y %H:%M:%S GMT")
         end_time_str = (now + datetime.timedelta(minutes=time_limit_mins)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        exam_name = exam['exam_name']
+        exam_name = unicodedata.normalize('NFKD', exam_name).encode('ascii', 'ignore').decode('utf8')
+
+        for character in SOFTWARE_SECURE_INVALID_CHARS:
+            exam_name = exam_name.replace(character, '_')
+
+        # if exam_name is blank because we can't normalize a potential unicode (like Chinese) exam name
+        # into something ascii-like, then we have use a default otherwise
+        # SoftwareSecure will fail on the exam registration API call
+        if not exam_name:
+            exam_name = u'Proctored Exam'
+
         return {
             "examCode": attempt_code,
             "organization": self.organization,
@@ -377,7 +350,7 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
             "reviewerNotes": reviewer_notes,
             "examPassword": self._encrypt_password(self.crypto_key, attempt_code),
             "examSponsor": self.exam_sponsor,
-            "examName": exam['exam_name'],
+            "examName": exam_name,
             "ssiProduct": 'rp-now',
             # need to pass in a URL to the LMS?
             "examUrl": callback_url,
@@ -417,26 +390,28 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         """
         keys = body_json.keys()
         keys.sort()
-        string = ""
+        string = b""
         for key in keys:
             value = body_json[key]
             if isinstance(value, bool):
                 if value:
-                    value = 'true'
+                    value = b'true'
                 else:
-                    value = 'false'
+                    value = b'false'
+            key = key.encode('utf8')
             if isinstance(value, (list, tuple)):
                 for idx, arr in enumerate(value):
+                    pfx = b'%s.%d' % (key, idx)
                     if isinstance(arr, dict):
-                        string += self._body_string(arr, key + '.' + str(idx) + '.')
+                        string += self._body_string(arr, pfx + b'.')
                     else:
-                        string += key + '.' + str(idx) + ':' + arr + '\n'
+                        string += b'%s:%s\n' % (pfx, six.text_type(arr).encode('utf8'))
             elif isinstance(value, dict):
-                string += self._body_string(value, key + '.')
+                string += self._body_string(value, key + b'.')
             else:
                 if value != "" and not value:
                     value = "null"
-                string += str(prefix) + str(key) + ":" + unicode(value).encode('utf-8') + '\n'
+                string += b'%s%s:%s\n' % (prefix, key, six.text_type(value).encode('utf8'))
 
         return string
 
@@ -446,7 +421,7 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         """
         body_str = self._body_string(body_json)
 
-        method_string = method + '\n\n'
+        method_string = method + b'\n\n'
 
         headers_str = self._header_string(headers, date)
         message = method_string + headers_str + body_str
@@ -459,10 +434,10 @@ class NPOEDBackendProvider(ProctoringBackendProvider):
         )
         log.info(log_msg)
 
-        hashed = hmac.new(str(self.secret_key), str(message), sha256)
-        computed = binascii.b2a_base64(hashed.digest()).rstrip('\n')
+        hashed = hmac.new(self.secret_key.encode('ascii'), message, sha256)
+        computed = binascii.b2a_base64(hashed.digest()).rstrip(b'\n')
 
-        return 'SSI ' + self.secret_key_id + ':' + computed
+        return b'SSI %s:%s' % (self.secret_key_id.encode('ascii'), computed)
 
     def _send_request_to_ssi(self, data, sig, date):
         """

@@ -100,7 +100,9 @@ class ProctoredExamStudentAttemptStatus(object):
         Returns a boolean if the passed in to_status calls for an override of the learner's grade.
         """
         return to_status in [
-            cls.rejected
+            # FIT IT IN FUTURE
+            #cls.rejected
+            cls.declined
         ]
 
     @classmethod

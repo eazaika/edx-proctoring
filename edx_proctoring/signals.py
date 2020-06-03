@@ -22,7 +22,7 @@ def check_for_category_switch(sender, instance, **kwargs):  # pylint: disable=un
             exam = ProctoredExamSerializer(instance).data
             # from the perspective of the backend, the exam is now inactive.
             exam['is_active'] = False
-            backend = get_backend_provider(name=exam['backend'])
+            backend = get_backend_provider(name=exam['proctoring_service'])
             backend.on_exam_saved(exam)
 
 

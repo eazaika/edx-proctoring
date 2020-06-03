@@ -13,12 +13,14 @@ from django.db.models import Q
 from django.contrib import admin
 from django.contrib import messages
 from django.utils.translation import ugettext_lazy as _
+from django_extensions.admin import ForeignKeyAutocompleteAdmin
 from edx_proctoring.models import (
     ProctoredExam,
     ProctoredExamReviewPolicy,
     ProctoredExamSoftwareSecureReview,
     ProctoredExamSoftwareSecureReviewHistory,
     ProctoredExamStudentAttempt,
+    UsersWithSpecialPermissions,
 )
 from edx_proctoring.api import update_attempt_status
 from edx_proctoring.utils import locate_attempt_by_attempt_code
@@ -459,8 +461,19 @@ class ProctoredExamStudentAttemptAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
-        """Don't allow deletes"""
-        return False
+        """Allow deletes"""
+        return True
+
+
+class UsersWithSpecialPermissionsAdmin(ForeignKeyAutocompleteAdmin):
+    list_display = ('user_id',)
+    search_fields = ('user__id', 'user__username')
+
+    model_fields = UsersWithSpecialPermissions._meta.get_fields()
+
+    related_search_fields = {
+        'user': ('email', 'username', 'first_name', 'last_name'),
+    }
 
 
 def prettify_course_id(course_id):
@@ -474,3 +487,4 @@ admin.site.register(ProctoredExamStudentAttempt, ProctoredExamStudentAttemptAdmi
 admin.site.register(ProctoredExamReviewPolicy, ProctoredExamReviewPolicyAdmin)
 admin.site.register(ProctoredExamSoftwareSecureReview, ProctoredExamSoftwareSecureReviewAdmin)
 admin.site.register(ProctoredExamSoftwareSecureReviewHistory, ProctoredExamSoftwareSecureReviewHistoryAdmin)
+admin.site.register(UsersWithSpecialPermissions, UsersWithSpecialPermissionsAdmin)

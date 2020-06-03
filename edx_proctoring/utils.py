@@ -31,6 +31,8 @@ from edx_proctoring.models import (
 
 log = logging.getLogger(__name__)
 
+ATTEMPTS_SESSION_ID_COOKIE_NAME = 'proctoring_session'
+
 
 class AuthenticatedAPIView(APIView):
     """
@@ -231,3 +233,18 @@ def obscured_user_id(user_id, *extra):
     obs_hash.update(six.text_type(user_id))
     obs_hash.update(u''.join(six.text_type(ext) for ext in extra))
     return obs_hash.hexdigest()
+
+
+def get_attempt_session_cookie(request, attempt_id):
+    cookie_name = ATTEMPTS_SESSION_ID_COOKIE_NAME + '_' + attempt_id
+    cookie_value = request.COOKIES.get(cookie_name, '')
+    return cookie_name, cookie_value
+
+
+def get_client_ip(request):
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[-1].strip()
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip

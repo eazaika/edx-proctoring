@@ -2,71 +2,78 @@
 <div class="sequence proctored-exam instructions message-left-bar" data-exam-id="{{exam_id}}" data-exam-started-poll-url="{{exam_started_poll_url}}">
 
   <div class="">
+    {% if provider_name == "WEB_ASSISTANT" %}
+      {% blocktrans %}Please wait until proctor will activate your session and then push 'Start exam' button{% endblocktrans %}
+      <input type="hidden" name="check-wa-activated" id="check-wa-activated" value="1">
+    {% else %}
     <h3>
     {% blocktrans %}
       Follow these steps to set up and start your proctored exam.
     {% endblocktrans %}
     </h3>
-    {% if backend_instructions %}
-      <p>
-        {% blocktrans %}
-          Note: As part of the proctored exam setup, you will be asked
-          to verify your identity. Before you begin, make sure you are
-          on a computer with a webcam, and that you have a valid form
-          of photo identification such as a driver’s license or
-          passport.
-        {% endblocktrans %}
-      </p>
-      <ol>
-        {% for instruction in backend_instructions %}
-          <li>{{instruction|safe}}</li>
-        {% endfor %}
-      </ol>
-      {% if provider_tech_support_email and provider_tech_support_phone %}
+      {% if backend_instructions %}
         <p>
           {% blocktrans %}
-            If you have issues relating to proctoring, you can contact {{ provider_name }} technical support by emailing {{ provider_tech_support_email }}  or by calling {{ provider_tech_support_phone }}.
+            Note: As part of the proctored exam setup, you will be asked
+            to verify your identity. Before you begin, make sure you are
+            on a computer with a webcam, and that you have a valid form
+            of photo identification such as a driver’s license or
+            passport.
           {% endblocktrans %}
         </p>
-      {% endif %}
-      <button id="software_download_link" class="exam-action-button btn-pl-primary" data-action="click_download_software">{% trans "Start System Check" %}</button>
-    {% else %}
-    <p>
-      {% blocktrans %}
-        1. Copy this unique exam code. You will be prompted to paste this code later before you start the exam.
-      {% endblocktrans %}
-    </p>
-    <p>
-      <span class="proctored-exam-code">{{exam_code}}</span>
-    </p>
-    <p>
-      {% blocktrans %}
-        Select the exam code, then copy it using Command+C (Mac) or Control+C (Windows).
-      {% endblocktrans %}
-    </p>
-    <p>
-      {% blocktrans %}
-        2. Click the button below to set up proctoring.
-      {% endblocktrans %}
-    </p>
-    <button id="software_download_link" class="exam-action-button btn-pl-primary" data-action="click_download_software">{% trans "Start System Check" %}</button>
-    <p>
-      {% blocktrans %}
-        A new window will open. You will run a system check before downloading the proctoring application.
-      {% endblocktrans %}
-    </p>
-    <p>
-      {% blocktrans %}
-        You will be asked to verify your identity as part of the proctoring exam set up.
-        Make sure you are on a computer with a webcam, and that you have valid photo identification
-        such as a driver's license or passport, before you continue.
-      {% endblocktrans %}
-    </p>
-    <p>
+        <ol>
+          {% for instruction in backend_instructions %}
+            <li>{{instruction|safe}}</li>
+          {% endfor %}
+        </ol>
+        {% if provider_tech_support_email and provider_tech_support_phone %}
+          <p>
+            {% blocktrans %}
+              If you have issues relating to proctoring, you can contact {{ provider_name }} technical support by creating ticket at {{ tech_support_link }} or by emailing {{ provider_tech_support_email }} or by calling {{ provider_tech_support_phone }}.
+            {% endblocktrans %}
+          </p>
+        {% endif %}
+        <button id="software_download_link" class="exam-action-button btn-pl-primary" data-action="click_download_software">{% trans "Start System Check" %}</button>
+      {% else %}
+      <p>
         {% blocktrans %}
-          3. When you have finished setting up proctoring, start the exam.
+          1. Copy this unique exam code. You will be prompted to paste this code later before you start the exam.
         {% endblocktrans %}
-    </p>
+      </p>
+      <p>
+        <span class="proctored-exam-code">{{exam_code}}</span>
+      </p>
+      <p>
+        {% blocktrans %}
+          Select the exam code, then copy it using Command+C (Mac) or Control+C (Windows).
+        {% endblocktrans %}
+      </p>
+      {% comment %}
+      <p>
+        {% blocktrans %}
+          2. Click the button below to set up proctoring.
+        {% endblocktrans %}
+      </p>
+      <button id="software_download_link" class="exam-action-button btn-pl-primary" data-action="click_download_software">{% trans "Start System Check" %}</button>
+      <p>
+        {% blocktrans %}
+          A new window will open. You will run a system check before downloading the proctoring application.
+        {% endblocktrans %}
+      </p>
+      <p>
+        {% blocktrans %}
+          You will be asked to verify your identity as part of the proctoring exam set up.
+          Make sure you are on a computer with a webcam, and that you have valid photo identification
+          such as a driver's license or passport, before you continue.
+        {% endblocktrans %}
+      </p>
+      <p>
+          {% blocktrans %}
+            3. When you have finished setting up proctoring, start the exam.
+          {% endblocktrans %}
+      </p>
+      {% endcomment %}
+      {% endif %}
     {% endif %}
     <div class="footer-sequence border-b-0 padding-b-0">
       <a href="#" class="start-proctored-exam">{% trans "Start Proctored Exam" %}</a>
@@ -76,6 +83,7 @@
 {% include 'proctored_exam/error_modal.html' %}
 
 
+{% if provider_name != "WEB_ASSISTANT" %}
 <div class="footer-sequence border-b-0 padding-b-0">
   {% if not is_sample_attempt and allow_proctoring_opt_out %}
     <p class="proctored-exam-instruction">
@@ -85,6 +93,7 @@
     </p>
   {% endif %}
 </div>
+{% endif %}
 {% include 'proctored_exam/footer.html' %}
 
 <script type="text/javascript">

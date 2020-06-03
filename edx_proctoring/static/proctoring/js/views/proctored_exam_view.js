@@ -23,6 +23,9 @@ var edx = edx || {};
             this.poll_interval = 60;
             this.first_time_rendering = true;
 
+            this.timerWaCheckAttempt = null;
+            this.checkWaAttemptInterval = 30000; // 30 sec
+
             // we need to keep a copy here because the model will
             // get destroyed before onbeforeunload is called
             this.taking_as_proctored = false;
@@ -48,6 +51,20 @@ var edx = edx || {};
             /* after it loads, the listenTo event will file and */
             /* will call into the rendering */
             this.model.fetch();
+        },
+        checkWaActivated: function() {
+            var url = $('.instructions').data('exam-started-poll-url');
+            var self = this;
+            $.ajax({
+                url: url,
+                type: 'GET',
+                success: function(data) {
+                    if (data.status !== 'created') {
+                        clearInterval(self.timerWaCheckAttempt);
+                        window.location.reload();
+                    }
+                }
+            });
         },
         events: {
             'click #toggle_timer': 'toggleTimerVisibility'
@@ -85,6 +102,23 @@ var edx = edx || {};
 
             this.render();
         },
+        checkQuestionsCompleted: function(attemptId, completedCallback, notCompletedCallback) {
+            $.ajax({
+                url: '/api/edx_proctoring/v1/proctored_exam/attempt/' + attemptId,
+                type: 'PUT',
+                data: {
+                    action: 'check_questions_completed'
+                },
+                success: function(data) {
+                    if (data.completed) {
+                        completedCallback();
+                    } else {
+                        notCompletedCallback();
+                    }
+                }
+            });
+
+        },
         render: function () {
             if (this.template !== null) {
                 if (
@@ -110,7 +144,7 @@ var edx = edx || {};
 
                     // Bind a click handler to the exam controls
                     var self = this;
-                    $('.exam-button-turn-in-exam').click(function(){
+                    function stopExam() {
                         $(window).unbind('beforeunload', self.unloadMessage);
 
                         $.ajax({
@@ -125,14 +159,51 @@ var edx = edx || {};
                               location.href = self.model.get('exam_url_path');
                             }
                         });
+                    }
+
+                    // Bind a click handler to the exam controls
+                    $('.exam-button-turn-in-exam').click(function(){
+                        self.checkQuestionsCompleted(
+                            self.model.get('attempt_id'),
+                            function() { stopExam(); },
+                            function() {
+                                if (confirm("Some questions are unanswered. Are you sure you want to finish exam?")) {
+                                    stopExam();
+                                }
+                            }
+                        );
                     });
                 }
                 else {
                     // remove callback on scroll event
                     $(window).unbind('scroll', this.detectScroll);
                 }
+                if ($("#check-wa-activated").length && (!this.timerWaCheckAttempt)) {
+                    this.timerWaCheckAttempt = setInterval(this.checkWaActivated, this.checkWaAttemptInterval, this);
+                }
+
+                this.updateSession();
             }
             return this;
+        },
+        updateSession: function() {
+            var attemptId = this.model.get('attempt_id');
+            if (attemptId && (attemptId > 0)) {
+                $.ajax({
+                    url: '/api/edx_proctoring/v1/proctored_exam/attempt/session/' + attemptId,
+                    type: 'GET',
+                    success: function(data) {
+                        if (data.session_cookie_set) {
+                            var date = new Date();
+                            date.setTime(date.getTime() + (60 * 60 * 1000 * data.session_cookie_lifetime_hours));
+                            $.cookie(data.session_cookie_name, data.session_cookie_value, {
+                                expires: date,
+                                path: '/'
+                            });
+                        }
+                    }
+                });
+            }
         },
         reloadPage: function () {
           location.reload();
@@ -145,6 +216,27 @@ var edx = edx || {};
             var pingInterval = self.model.get('ping_interval');
             self.timerTick ++;
             self.secondsLeft --;
+
+           var attemptId = self.model.get('attempt_id');
+            var timeWarningSemaphore = null;
+            var timeWarningSemaphoreName = 'timeWarningSemaphore_' + attemptId;
+            if ((self.secondsLeft < 60) && (self.secondsLeft > 20)) {
+                timeWarningSemaphore = $.cookie(timeWarningSemaphoreName);
+                if (!timeWarningSemaphore) {
+                    $.cookie(timeWarningSemaphoreName, '1', {
+                        path: '/'
+                    });
+                    self.checkQuestionsCompleted(
+                        attemptId,
+                        function() { },
+                        function() {
+                            alert("You did not push 'Complete' button for some questions.");
+                        }
+                    );
+                }
+            }
+
+            var reloadStatuses = ['error', 'submitted', 'verified', 'rejected'];
             if (
                 self.timerTick % pingInterval === pingInterval / 2 &&
                 edx.courseware.proctored_exam.configuredWorkerURL
@@ -155,7 +247,7 @@ var edx = edx || {};
                 var url = self.model.url + '/' + self.model.get('attempt_id');
                 var queryString = '?sourceid=in_exam&proctored=' + self.model.get('taking_as_proctored');
                 $.ajax(url + queryString).success(function(data) {
-                    if (data.status === 'error') {
+                    if (reloadStatuses.indexOf(data.status) !== -1) {
                         // The proctoring session is in error state
                         // refresh the page to bring up the new Proctoring state from the backend.
                         clearInterval(self.timerId); // stop the timer once the time finishes.

@@ -10,19 +10,21 @@
 </div>
 
 <script type="text/javascript">
-  var startProctoredExam = function(selector, exam_id, action_url, start_immediately, attempt_proctored) {
+  var startProctoredExam = function(selector, exam_id, action_url, start_immediately, attempt_proctored, proctoring_service) {
     $.post(
       action_url,
       {
         "exam_id": exam_id,
         "attempt_proctored": attempt_proctored,
-        "start_clock": start_immediately
+        "start_clock": start_immediately,
+        "provider_name": proctoring_service
       },
       function(data) {
         // reload the page, because we've unlocked it
         location.reload();
       }
-    ).fail(function(){
+    ).fail(function(jqXHR){
+      var respData = jQuery.parseJSON(jqXHR.responseText);
       enableClickEvent(selector);
       var msg = gettext(
         "There has been a problem starting your exam.\n\n" +
@@ -30,6 +32,9 @@
         "you have are experiencing a network connection problem, or there has been\n" +
         "a service disruption. Check your account or network connection and try again."
       );
+      if (respData && respData.message) {
+        msg = respData.message;
+      }
       alert(msg);
     });
   };
@@ -56,6 +61,11 @@
 
   $('.start-timed-exam').click(
     function() {
+      var proctoring_service = $("#proctoring_service_select")[0].value;
+      if (proctoring_service === "") {
+        alert ("You have to select proctoring service");
+        return false;
+      }
       if (!inProcess) {
         disableClickEvent($(this));
         var attempt_proctored = $(this).data('attempt-proctored');
@@ -68,7 +78,7 @@
           var action_url = $(this).data('ajax-url');
           var exam_id = $(this).data('exam-id');
           var start_immediately = $(this).data('start-immediately');
-          startProctoredExam($(this), exam_id, action_url, start_immediately, attempt_proctored);
+          startProctoredExam($(this), exam_id, action_url, start_immediately, attempt_proctored, proctoring_service);
         }
       } else {
         return false;

@@ -13,6 +13,8 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.db.models import Q
 from django.db.models.base import ObjectDoesNotExist
+from django.db.models.signals import pre_save, pre_delete
+from django.dispatch import receiver
 from django.utils.translation import ugettext_noop
 from jsonfield.fields import JSONField
 
@@ -32,6 +34,8 @@ try:
 except ImportError:
     pass
 
+import logging
+log = logging.getLogger(__name__)
 
 @six.python_2_unicode_compatible
 class ProctoredExam(TimeStampedModel):
@@ -110,7 +114,8 @@ class ProctoredExam(TimeStampedModel):
         return proctored_exam
 
     @classmethod
-    def get_all_exams_for_course(cls, course_id, active_only=False, proctored_exams_only=False):
+    def get_all_exams_for_course(cls, course_id, active_only=False, proctored_exams_only=False,
+                                 dt_expired=False, proctoring_service=False):
         """
         Returns all exams for a give course
         """
@@ -120,8 +125,41 @@ class ProctoredExam(TimeStampedModel):
             filtered_query = filtered_query & Q(is_active=True)
         if proctored_exams_only:
             filtered_query = filtered_query & Q(is_proctored=True) & Q(is_practice_exam=False)
+        if dt_expired:
+            filtered_query = filtered_query & (Q(due_date__isnull=True) | Q(due_date__gt=datetime.datetime.now()))
+        if proctoring_service:
+            filtered_query = filtered_query & Q(proctored_exam_params__service=proctoring_service)
 
-        return cls.objects.filter(filtered_query)
+        return cls.objects.filter(filtered_query).prefetch_related('proctored_exam_params')
+
+    def _update_extended_exam_params(self, exam_params):
+        if 'service' in exam_params and exam_params['service']:
+            exam_params['service'] = exam_params['service'].strip() if exam_params['service'].strip() else None
+        else:
+            exam_params['service'] = None
+        return exam_params
+
+    def add_extended_exam_params(self, exam_params):
+        exam_params = self._update_extended_exam_params(exam_params)
+        exam_params['updated'] = True
+        exam_params['exam'] = self
+        ProctoredExamParams(**exam_params).save()
+
+    def update_extended_exam_params(self, exam_params):
+        exam_params = self._update_extended_exam_params(exam_params)
+        exam_params['updated'] = True
+        try:
+            for attr, value in exam_params.items():
+                setattr(self.proctored_exam_params, attr, value)
+                self.proctored_exam_params.save()
+        except ProctoredExamParams.DoesNotExist:
+            self.add_extended_exam_params(exam_params)
+
+
+class ProctoredExamStudentAttemptCustomStatus(object):
+
+    # the exam has been deleted in the Instructor Dashboard
+    deleted_in_edx = 'deleted_in_edx'
 
 
 @six.python_2_unicode_compatible
@@ -246,7 +284,7 @@ class ProctoredExamStudentAttemptManager(models.Manager):
         Returns the Student Exam Attempts for the given course_id.
         """
         filtered_query = Q(proctored_exam__course_id=course_id)
-        return self.filter(filtered_query).order_by('-created')
+        return self.filter(filtered_query).prefetch_related('proctoring_service').order_by('-created')
 
     def get_filtered_exam_attempts(self, course_id, search_by):
         """
@@ -255,7 +293,8 @@ class ProctoredExamStudentAttemptManager(models.Manager):
         filtered_query = Q(proctored_exam__course_id=course_id) & (
             Q(user__username__contains=search_by) | Q(user__email__contains=search_by)
         )
-        return self.filter(filtered_query).order_by('-created')  # pylint: disable=no-member
+        return self.filter(filtered_query).prefetch_related('proctoring_service')\
+            .order_by('-created')  # pylint: disable=no-member
 
     def get_proctored_exam_attempts(self, course_id, username):
         """
@@ -266,7 +305,7 @@ class ProctoredExamStudentAttemptManager(models.Manager):
             user__username=username,
             taking_as_proctored=True,
             is_sample_attempt=False,
-        ).order_by('-completed_at')
+        ).prefetch_related('proctoring_service').order_by('-completed_at')
 
     def get_active_student_attempts(self, user_id, course_id=None):
         """
@@ -277,7 +316,9 @@ class ProctoredExamStudentAttemptManager(models.Manager):
         if course_id is not None:
             filtered_query = filtered_query & Q(proctored_exam__course_id=course_id)
 
-        return self.filter(filtered_query).order_by('-created')  # pylint: disable=no-member
+        return self.filter(filtered_query).prefetch_related('proctoring_service')\
+            .order_by('-created')  # pylint: disable=no-member
+
 
 
 class ProctoredExamStudentAttempt(TimeStampedModel):
@@ -340,15 +381,23 @@ class ProctoredExamStudentAttempt(TimeStampedModel):
         verbose_name = 'proctored exam attempt'
         unique_together = (('user', 'proctored_exam'),)
 
+    @property
+    def provider_name(self):
+        try:
+            return self.proctoring_service.service
+        except ProctoredExamStudentAttemptProctoringService.DoesNotExist:
+            return None
+
     @classmethod
     def create_exam_attempt(cls, exam_id, user_id, student_name, attempt_code,
                             taking_as_proctored, is_sample_attempt, external_id,
+                            provider_name='',
                             review_policy_id=None):
         """
         Create a new exam attempt entry for a given exam_id and
         user_id.
         """
-        return cls.objects.create(
+        exam_attempt = cls.objects.create(
             proctored_exam_id=exam_id,
             user_id=user_id,
             student_name=student_name,
@@ -359,12 +408,48 @@ class ProctoredExamStudentAttempt(TimeStampedModel):
             status=ProctoredExamStudentAttemptStatus.created,
             review_policy_id=review_policy_id
         )  # pylint: disable=no-member
+        if provider_name:
+            ProctoredExamStudentAttemptProctoringService(attempt=exam_attempt, service=provider_name.strip()).save()
+        return exam_attempt
 
     def delete_exam_attempt(self):
         """
         deletes the exam attempt object and archives it to the ProctoredExamStudentAttemptHistory table.
         """
         self.delete()
+
+    def save_custom_status(self, custom_status):
+        proctoring_service = None
+        try:
+            proctoring_service = self.proctoring_service.service
+        except ProctoredExamStudentAttemptProctoringService.DoesNotExist:
+            pass
+
+        obj = ProctoredExamStudentAttemptCustom(
+            user=self.user,
+            attempt_id=self.id,
+            proctored_exam=self.proctored_exam,
+            started_at=self.started_at,
+            completed_at=self.completed_at,
+            attempt_code=self.attempt_code,
+            external_id=self.external_id,
+            allowed_time_limit_mins=self.allowed_time_limit_mins,
+            status=custom_status,
+            taking_as_proctored=self.taking_as_proctored,
+            is_sample_attempt=self.is_sample_attempt,
+            student_name=self.student_name,
+            review_policy_id=self.review_policy_id,
+            last_poll_timestamp=self.last_poll_timestamp,
+            last_poll_ipaddr=self.last_poll_ipaddr,
+            service=proctoring_service
+        )
+        obj.save()
+        ProctorNotificator.notify({
+            'code': self.attempt_code,
+            'status': custom_status,
+            'course_event_id': self.proctored_exam.id,
+            'course_id': self.proctored_exam.course_id
+        }, proctoring_service)
 
 
 class ProctoredExamStudentAttemptHistory(TimeStampedModel):
@@ -417,6 +502,13 @@ class ProctoredExamStudentAttemptHistory(TimeStampedModel):
     last_poll_timestamp = models.DateTimeField(null=True)
     last_poll_ipaddr = models.CharField(max_length=32, null=True)
 
+    @property
+    def provider_name(self):
+        try:
+            return self.proctoring_service.service
+        except ProctoredExamStudentAttemptHistoryProctoringService.DoesNotExist:
+            return None
+
     @classmethod
     def get_exam_attempt_by_code(cls, attempt_code):
         """
@@ -442,6 +534,64 @@ class ProctoredExamStudentAttemptHistory(TimeStampedModel):
         verbose_name = 'proctored exam attempt history'
 
 
+class ProctoredExamStudentAttemptCustom(TimeStampedModel):
+    """
+    This should be the same schema as ProctoredExamStudentAttempt
+    but will record all entries that have non-standard statuses.
+    """
+
+    user = models.ForeignKey(User, db_index=True)
+
+    # this is the PK of the original table, note this is not a FK
+    attempt_id = models.IntegerField(null=True)
+
+    proctored_exam = models.ForeignKey(ProctoredExam, db_index=True)
+
+    # started/completed date times
+    started_at = models.DateTimeField(null=True)
+    completed_at = models.DateTimeField(null=True)
+
+    # this will be a unique string ID that the user
+    # will have to use when starting the proctored exam
+    attempt_code = models.CharField(max_length=255, null=True, db_index=True)
+
+    # This will be a integration specific ID - say to SoftwareSecure.
+    external_id = models.CharField(max_length=255, null=True, db_index=True)
+
+    # this is the time limit allowed to the student
+    allowed_time_limit_mins = models.IntegerField()
+
+    # what is the status of this attempt
+    status = models.CharField(max_length=64)
+
+    # if the user is attempting this as a proctored exam
+    # in case there is an option to opt-out
+    taking_as_proctored = models.BooleanField(default=False)
+
+    # Whether this attampt is considered a sample attempt, e.g. to try out
+    # the proctoring software
+    is_sample_attempt = models.BooleanField(default=False)
+
+    student_name = models.CharField(max_length=255)
+
+    # what review policy was this exam submitted under
+    # Note that this is not a foreign key because
+    # this ID might point to a record that is in the History table
+    review_policy_id = models.IntegerField(null=True)
+
+    # These two fields have been deprecated.
+    # They were used in client polling that no longer exists.
+    last_poll_timestamp = models.DateTimeField(null=True)
+    last_poll_ipaddr = models.CharField(max_length=32, null=True)
+
+    service = models.CharField(max_length=255, null=True)
+
+    class Meta:
+        """ Meta class for this Django model """
+        db_table = 'proctoring_proctoredexamstudentattemptcustom'
+        verbose_name = 'proctored exam attempt custom'
+
+
 def archive_model(model, instance, **mapping):
     """
     Archives the instance to the given history model
@@ -453,9 +603,100 @@ def archive_model(model, instance, **mapping):
     for field in instance._meta.get_fields():
         to_name = mapping.get(field.name, field.name)
         if to_name is not None:
-            setattr(archive, to_name, getattr(instance, field.name, None))
+            try:
+                if instance.proctoring_service.service and field.name == 'proctoring_service':
+                    set_proctoring_service = True
+                else:
+                    setattr(archive, to_name, getattr(instance, field.name, None))
+            except ProctoredExamStudentAttemptProctoringService.DoesNotExist:
+                pass
     archive.save()
+    if set_proctoring_service:
+        ProctoredExamStudentAttemptHistoryProctoringService(
+            attempt=archive,
+            service=instance.proctoring_service.service).save()
     return archive
+
+
+@receiver(pre_delete, sender=ProctoredExamStudentAttempt)
+def on_attempt_deleted(sender, instance, **kwargs):  # pylint: disable=unused-argument
+    """
+    Archive the exam attempt when the item is about to be deleted
+    Make a clone and populate in the History table
+    """
+
+    archive_object = ProctoredExamStudentAttemptHistory(
+        user=instance.user,
+        attempt_id=instance.id,
+        proctored_exam=instance.proctored_exam,
+        started_at=instance.started_at,
+        completed_at=instance.completed_at,
+        attempt_code=instance.attempt_code,
+        external_id=instance.external_id,
+        allowed_time_limit_mins=instance.allowed_time_limit_mins,
+        status=instance.status,
+        taking_as_proctored=instance.taking_as_proctored,
+        is_sample_attempt=instance.is_sample_attempt,
+        student_name=instance.student_name,
+        review_policy_id=instance.review_policy_id,
+        last_poll_timestamp=instance.last_poll_timestamp,
+        last_poll_ipaddr=instance.last_poll_ipaddr,
+
+    )
+    archive_object.save()
+    try:
+        if instance.proctoring_service.service:
+            ProctoredExamStudentAttemptHistoryProctoringService(
+                attempt=archive_object,
+                service=instance.proctoring_service.service).save()
+
+    except ProctoredExamStudentAttemptProctoringService.DoesNotExist:
+        pass
+
+    instance.save_custom_status(ProctoredExamStudentAttemptCustomStatus.deleted_in_edx)
+
+
+@receiver(pre_save, sender=ProctoredExamStudentAttempt)
+def on_attempt_updated(sender, instance, **kwargs):  # pylint: disable=unused-argument
+    """
+    Archive the exam attempt whenever the attempt status is about to be
+    modified. Make a new entry with the previous value of the status in the
+    ProctoredExamStudentAttemptHistory table.
+    """
+
+    if instance.id:
+        # on an update case, get the original
+        # and see if the status has changed, if so, then we need
+        # to archive it
+        original = ProctoredExamStudentAttempt.objects.get(id=instance.id)
+
+        if original.status != instance.status:
+            archive_object = ProctoredExamStudentAttemptHistory(
+                user=original.user,
+                attempt_id=original.id,
+                proctored_exam=original.proctored_exam,
+                started_at=original.started_at,
+                completed_at=original.completed_at,
+                attempt_code=original.attempt_code,
+                external_id=original.external_id,
+                allowed_time_limit_mins=original.allowed_time_limit_mins,
+                status=original.status,
+                taking_as_proctored=original.taking_as_proctored,
+                is_sample_attempt=original.is_sample_attempt,
+                student_name=original.student_name,
+                review_policy_id=original.review_policy_id,
+                last_poll_timestamp=original.last_poll_timestamp,
+                last_poll_ipaddr=original.last_poll_ipaddr,
+            )
+            archive_object.save()
+            try:
+                if original.proctoring_service.service:
+                    ProctoredExamStudentAttemptHistoryProctoringService(
+                        attempt=archive_object,
+                        service=original.proctoring_service.service).save()
+
+            except ProctoredExamStudentAttemptProctoringService.DoesNotExist:
+                pass
 
 
 class QuerySetWithUpdateOverride(models.QuerySet):
@@ -548,7 +789,7 @@ class ProctoredExamStudentAllowance(TimeStampedModel):
             key = key[0]
 
         if not cls.is_allowance_value_valid(key, value):
-            err_msg = (
+            err_msg = _(
                 'allowance_value "{value}" should be non-negative integer value.'
             ).format(value=value)
             raise AllowanceValueNotAllowedException(err_msg)
@@ -562,7 +803,7 @@ class ProctoredExamStudentAllowance(TimeStampedModel):
                 users = User.objects.filter(email=user_info)
 
             if not users.exists():
-                err_msg = (
+                err_msg = _(
                     'Cannot find user against {user_info}'
                 ).format(user_info=user_info)
                 raise UserNotFoundException(err_msg)

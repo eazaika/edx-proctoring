@@ -64,7 +64,7 @@
         <tr>
             <td></td>
             <td>
-                <input id='addNewAllowance' type='submit' value='Save' />
+                <input id='addNewAllowance' type='submit' value='<%- gettext("Save") %>' />
             </td>
         </tr>
     </table>

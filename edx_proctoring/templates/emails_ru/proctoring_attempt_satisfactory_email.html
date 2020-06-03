@@ -1,0 +1,24 @@
+{% load i18n %}
+
+<p>
+    {% blocktrans %}
+        Здравствуйте, {{ username }}!
+    {% endblocktrans %}
+</p>
+<p>
+    {% blocktrans %}
+        Ваш экзамен с прокторингом "{{ exam_name }}" на курсе
+        <a href="{{ course_url }}">{{ course_name }}</a> был проверен и Вы
+        соответствовали всем требованиям. Вы можете посмотреть ваш результат
+        на странице прогресса курса.
+    {% endblocktrans %}
+</p>
+<p>
+    {% blocktrans %}
+        Если у Вас есть вопросы относительно полученных результатов, свяжитесь, пожалуйста,
+                с нашим представителем службы поддержки
+        <a href="mailto:{{ contact_email }}?Subject={{ support_email_subject }}">
+            {{ contact_email }}
+        </a>.
+    {% endblocktrans %}
+</p>
