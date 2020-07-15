@@ -21,6 +21,8 @@ def _get_proctoring_config(provider_name):
     """
 
     proctors_config = getattr(settings, 'PROCTORING_BACKEND_PROVIDERS')
+    if not provider_name:
+        provider_name = 'null'
     if not proctors_config:
         raise ImproperlyConfigured(
             "Settings not configured with PROCTORING_BACKEND_PROVIDERS!"
@@ -35,7 +37,7 @@ def _get_proctoring_config(provider_name):
     return proctors_config.get(provider_name)
 
 
-def get_backend_provider(exam=None, name=None):
+def get_backend_provider(exam=None, name='null'):
     """
     Returns an instance of the configured backend provider
     Passing in an exam will return the backend for that exam
